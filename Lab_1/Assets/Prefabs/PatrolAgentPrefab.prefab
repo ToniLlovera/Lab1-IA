@@ -64,6 +64,8 @@ MeshRenderer:
   m_RayTracingAccelStructBuildFlagsOverride: 0
   m_RayTracingAccelStructBuildFlags: 1
   m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
@@ -85,6 +87,7 @@ MeshRenderer:
   m_AutoUVMaxDistance: 0.5
   m_AutoUVMaxAngle: 89
   m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
   m_SortingLayerID: 0
   m_SortingLayer: 0
   m_SortingOrder: 0
@@ -125,7 +128,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   waypointHolder: {fileID: 0}
-  waypointTolerance: 0.5
+  waypointTolerance: 10
+  lookaheadTurnSpeed: 6
 --- !u!195 &1795379385147216283
 NavMeshAgent:
   m_ObjectHideFlags: 0
@@ -135,7 +139,7 @@ NavMeshAgent:
   m_GameObject: {fileID: 8263299860485253265}
   m_Enabled: 1
   m_AgentTypeID: 0
-  m_Radius: 0.5000011
+  m_Radius: 0.55
   m_Speed: 100
   m_Acceleration: 20
   avoidancePriority: 50
