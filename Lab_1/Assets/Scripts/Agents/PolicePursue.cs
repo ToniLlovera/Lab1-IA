@@ -42,7 +42,8 @@ public class PolicePursue : MonoBehaviour
 
         _memoryTimer = 0f;
         _searchTimer = 0f;
-        agent.speed = patrolSpeed;  // Iniciar con velocidad de patrulla
+        agent.speed = 220;
+        agent.acceleration = 120;// Iniciar con velocidad de patrulla
     }
 
     void Update()
