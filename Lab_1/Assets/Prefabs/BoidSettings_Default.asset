@@ -1,0 +1,44 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b41a29a663f26264eb39008c49525f88, type: 3}
+  m_Name: BoidSettings_Default
+  m_EditorClassIdentifier: 
+  maxSpeed: 7.5
+  maxForce: 10
+  perceptionRadius: 2
+  separationRadius: 1
+  separationWeight: 2.2
+  alignmentWeight: 1
+  cohesionWeight: 1
+  targetWeight: 0.75
+  obstacleAvoidWeight: 2
+  separationPriorityThreshold: 0.4
+  arriveSlowRadius: 5
+  arriveStopRadius: 1.2
+  turnResponsiveness: 6
+  jitterStrength: 0.15
+  avoidRayLength: 3
+  obstacleMask:
+    serializedVersion: 2
+    m_Bits: 0
+  boundsSize: {x: 30, y: 30, z: 30}
+  wrapBounds: 1
+  gizmoBoidScale: 0.15
+  spawnLeader: 1
+  leaderSpeedMultiplier: 1.2
+  leaderForceMultiplier: 1.2
+  leaderAttractWeight: 1
+  leaderPreferredDistance: 2.5
+  leaderWander: 1
+  wanderRadius: 2
+  wanderDistance: 3
+  wanderJitter: 0.8
