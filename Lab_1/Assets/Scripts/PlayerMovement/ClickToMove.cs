@@ -8,19 +8,23 @@ public class PlayerMovement : MonoBehaviour
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
+
+        agent.autoBraking = false;   
+        agent.acceleration = 100f;  
+        agent.angularSpeed = 999f;   
     }
 
     void Update()
     {
-        if (Input.GetMouseButton(0))
+        // Detecta clicks del mouse
+        if (Input.GetMouseButtonDown(0))
         {
             Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-            RaycastHit hit;
-            if (Physics.Raycast(ray, out hit))
+            if (Physics.Raycast(ray, out RaycastHit hit))
             {
+                agent.isStopped = false;       
                 agent.SetDestination(hit.point);
             }
         }
     }
 }
-
