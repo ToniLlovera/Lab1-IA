@@ -1,98 +1,94 @@
 ﻿using UnityEngine;
 using UnityEngine.AI;
 
+[RequireComponent(typeof(NavMeshAgent))]
 public class PatrolAgent : MonoBehaviour
 {
-    public Transform waypointHolder;
-    private Transform[] waypoints;
+    [Header("Waypoints (en orden)")]
+    public Transform[] waypoints;
+
+    [Header("Movimiento")]
+    public float waypointTolerance = 0.6f;
+
+    [Header("Smoothing / Ghost-like")]
+    [Tooltip("Suavizado de orientación hacia un punto adelantado del path.")]
+    public float lookaheadTurnSpeed = 6f;
+
     private NavMeshAgent agent;
-
     private int currentIndex;
-    private int direction; // 1 = adelante, -1 = atrás
-
-    public float waypointTolerance = 0.5f;
+    private int direction; 
 
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
 
-        // Cargar waypoints desde el WaypointHolder
-        int count = waypointHolder.childCount;
-        waypoints = new Transform[count];
-        for (int i = 0; i < count; i++)
+      
+        agent.autoBraking = false;
+        agent.stoppingDistance = waypointTolerance;
+        agent.acceleration = Mathf.Max(agent.acceleration, 12f);
+        agent.angularSpeed = Mathf.Max(agent.angularSpeed, 600f);
+
+        if (waypoints == null || waypoints.Length == 0)
         {
-            waypoints[i] = waypointHolder.GetChild(i);
+            Debug.LogWarning($"{name}: no hay waypoints asignados.");
+            enabled = false;
+            return;
         }
 
-        if (waypoints.Length == 0) return;
-
-        // --- Punto aleatorio inicial ---
         currentIndex = Random.Range(0, waypoints.Length);
-
-        // Dirección aleatoria
         direction = Random.value < 0.5f ? 1 : -1;
 
-        // Ir al waypoint inicial
-        GoToCurrentWaypoint();
+        SetDestinationToCurrent();
     }
 
     void Update()
     {
-        if (!agent.pathPending)
+        if (!agent.isOnNavMesh) return;
+
+       
+        if (!agent.pathPending && agent.remainingDistance <= waypointTolerance)
+            NextWaypoint();
+
+        var corners = agent.path.corners;
+        if (corners != null && corners.Length >= 2)
         {
-            if (agent.remainingDistance <= waypointTolerance || agent.destination == transform.position)
+            Vector3 lookPt = corners[Mathf.Min(2, corners.Length - 1)];
+            Vector3 dir = (lookPt - transform.position);
+            dir.y = 0f;
+            if (dir.sqrMagnitude > 0.001f)
             {
-                NextWaypoint();
+                var targetRot = Quaternion.LookRotation(dir.normalized, Vector3.up);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * lookaheadTurnSpeed);
             }
         }
     }
 
-    void GoToCurrentWaypoint()
-    {
-        if (waypoints.Length == 0) return;
-        agent.SetDestination(waypoints[currentIndex].position);
-    }
-
     void NextWaypoint()
     {
-        if (waypoints.Length < 2) return;
-
-        // Cambiar índice según la dirección
         currentIndex += direction;
 
-        // Invertir dirección si llega al final o al principio
-        if (currentIndex >= waypoints.Length)
-        {
-            currentIndex = waypoints.Length - 2;
-            direction = -1;
-        }
-        else if (currentIndex < 0)
-        {
-            currentIndex = 1;
-            direction = 1;
-        }
+        if (currentIndex >= waypoints.Length) { currentIndex = waypoints.Length - 2; direction = -1; }
+        else if (currentIndex < 0) { currentIndex = 1; direction = +1; }
 
-        GoToCurrentWaypoint();
+        SetDestinationToCurrent();
     }
 
-    void OnDrawGizmos()
+    void SetDestinationToCurrent()
     {
-        if (waypointHolder == null) return;
+        if (waypoints[currentIndex] != null)
+            agent.SetDestination(waypoints[currentIndex].position);
+    }
 
-        int count = waypointHolder.childCount;
-        if (count < 2) return;
-
-        Gizmos.color = Color.yellow;
-
-        for (int i = 0; i < count - 1; i++)
+    void OnDrawGizmosSelected()
+    {
+        if (waypoints == null) return;
+        Gizmos.color = Color.cyan;
+        for (int i = 0; i < waypoints.Length; i++)
         {
-            Transform a = waypointHolder.GetChild(i);
-            Transform b = waypointHolder.GetChild(i + 1);
-
-            Gizmos.DrawSphere(a.position, 0.2f);
-            Gizmos.DrawLine(a.position, b.position);
+            if (waypoints[i] == null) continue;
+            Gizmos.DrawSphere(waypoints[i].position, 0.2f);
+            if (i + 1 < waypoints.Length && waypoints[i + 1] != null)
+                Gizmos.DrawLine(waypoints[i].position, waypoints[i + 1].position);
         }
-
-        Gizmos.DrawSphere(waypointHolder.GetChild(count - 1).position, 0.2f);
     }
 }

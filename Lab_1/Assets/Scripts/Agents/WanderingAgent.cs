@@ -1,54 +1,68 @@
 using UnityEngine;
 using UnityEngine.AI;
 
+[RequireComponent(typeof(NavMeshAgent))]
 public class WanderingAgent : MonoBehaviour
 {
+    [Header("Wander")]
+    [Tooltip("Radio del área para elegir destinos aleatorios (centrado hacia delante).")]
+    public float wanderRadius = 8f;
+
+    [Tooltip("Tiempo base entre elecciones de destino.")]
+    public float wanderInterval = 2.5f;
+
+    [Tooltip("Jitter del intervalo para evitar sincronías.")]
+    public float wanderIntervalJitter = 0.3f;
+
+    [Tooltip("Factor de giro hacia la velocidad actual.")]
+    public float turnResponsiveness = 6f;
+
+    [Tooltip("Multiplicador de margen en SamplePosition para evitar paredes/bordes.")]
+    public float sampleMarginMultiplier = 1.2f;
+
     private NavMeshAgent agent;
-
-    [Header("Configuración de wandering")]
-    public float wanderRadius = 10f;      // radio máximo para elegir destino
-    public float wanderTimer = 3f;        // tiempo entre cambios de destino
-    public float rotationSpeed = 5f;      // velocidad de giro suave
-
     private float timer;
 
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
-        timer = wanderTimer; // fuerza movimiento inicial
+        timer = wanderInterval * Random.Range(0.3f, 1.0f);
+
+        
+        agent.autoBraking = false;
+        agent.stoppingDistance = 0f;
+        agent.acceleration = Mathf.Max(agent.acceleration, 10f);
+        agent.angularSpeed = Mathf.Max(agent.angularSpeed, 600f);
     }
 
     void Update()
     {
-        timer += Time.deltaTime;
+        if (!agent.isOnNavMesh) return;
 
-        if (timer >= wanderTimer)
+        timer += Time.deltaTime;
+        float targetInterval = wanderInterval + Random.Range(-wanderIntervalJitter, wanderIntervalJitter);
+
+        if (timer >= targetInterval)
         {
-            Vector3 newPos = RandomNavMeshLocation(wanderRadius);
-            agent.SetDestination(newPos);
-            timer = 0;
+            Vector3 forwardBias = transform.position + transform.forward * (wanderRadius * 0.5f);
+            Vector3 randomDirection = forwardBias + Random.insideUnitSphere * wanderRadius;
+
+            if (NavMesh.SamplePosition(randomDirection, out NavMeshHit hit, wanderRadius * sampleMarginMultiplier, NavMesh.AllAreas))
+                agent.SetDestination(hit.position);
+
+            timer = 0f;
         }
 
-        // Rotación suave hacia la dirección del movimiento
         if (agent.velocity.sqrMagnitude > 0.01f)
         {
-            Quaternion targetRotation = Quaternion.LookRotation(agent.velocity.normalized);
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            var targetRot = Quaternion.LookRotation(agent.velocity.normalized, Vector3.up);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * turnResponsiveness);
         }
     }
 
-    // Genera un punto aleatorio válido en la NavMesh
-    Vector3 RandomNavMeshLocation(float radius)
+    void OnDrawGizmosSelected()
     {
-        Vector3 randomDirection = Random.insideUnitSphere * radius;
-        randomDirection += transform.position;
-
-        NavMeshHit hit;
-        if (NavMesh.SamplePosition(randomDirection, out hit, radius, NavMesh.AllAreas))
-        {
-            return hit.position;
-        }
-
-        return transform.position; // si falla, quedarse
+        Gizmos.color = new Color(0.3f, 1f, 0.3f, 0.35f);
+        Gizmos.DrawWireSphere(transform.position, wanderRadius);
     }
 }

@@ -1,45 +1,80 @@
 using UnityEngine;
 using UnityEngine.AI;
 
+[RequireComponent(typeof(NavMeshAgent))]
 public class PolicePursue : MonoBehaviour
 {
-    public Transform robber; // assigna l’objecte del lladre des de l’Inspector
+    [Header("Objetivos")]
+    public Transform robber;
+
+    [Header("Predicción")]
+    [Tooltip("Máximo tiempo de predicción.")]
+    public float predictionTime = 2.0f;
+
+    [Tooltip("Frecuencia de actualización de destino (Hz).")]
+    public float updateHz = 10f;
+
+    [Header("Rotación Suave")]
+    public float turnResponsiveness = 5f;
+
     private NavMeshAgent agent;
+    private float _accum;
+    private Vector3 _robberPrevPos;
+    private bool _hasPrev;
 
-    [Range(0.5f, 5f)]
-    public float predictionTime = 1.5f; // quant anticipa el policia
-
-    private void Start()
+    void Start()
     {
         agent = GetComponent<NavMeshAgent>();
+        if (!agent.isOnNavMesh)
+            Debug.LogWarning($"{name}: no está sobre el NavMesh.");
     }
 
-    private void Update()
+    void Update()
     {
         if (robber == null || !agent.isOnNavMesh) return;
 
-        // Agafem el component Rigidbody o velocitat del lladre
-        Rigidbody rb = robber.GetComponent<Rigidbody>();
-        Vector3 targetVelocity = rb ? rb.linearVelocity : Vector3.zero;
+        _accum += Time.deltaTime;
+        float tick = 1f / Mathf.Max(1f, updateHz);
+        if (_accum < tick) goto RotateOnly; 
+        _accum = 0f;
 
-        // Calculem la distància
+        
+        Vector3 targetVelocity = Vector3.zero;
+        var rb = robber.GetComponent<Rigidbody>();
+        if (rb)
+        {
+            targetVelocity = rb.linearVelocity;
+        }
+        else
+        {
+            if (_hasPrev)
+                targetVelocity = (robber.position - _robberPrevPos) / tick;
+            _robberPrevPos = robber.position;
+            _hasPrev = true;
+        }
+
+        
         Vector3 toTarget = robber.position - transform.position;
         float distance = toTarget.magnitude;
+        float denom = agent.speed + Mathf.Max(0.1f, targetVelocity.magnitude);
+        float t = Mathf.Clamp(distance / denom, 0f, predictionTime);
 
-        // Temps de predicció segons la distància i velocitat
-        float dynamicPrediction = Mathf.Clamp(distance / (agent.speed + targetVelocity.magnitude), 0f, predictionTime);
+        Vector3 futurePos = robber.position + targetVelocity * t;
+        agent.SetDestination(futurePos);
 
-        // Posició futura estimada del lladre
-        Vector3 futurePosition = robber.position + targetVelocity * dynamicPrediction;
-
-        // Movem el policia cap allà
-        agent.SetDestination(futurePosition);
-
-        // Rotació suau cap a la direcció del moviment
+    RotateOnly:
+        
         if (agent.velocity.sqrMagnitude > 0.1f)
         {
-            Quaternion targetRot = Quaternion.LookRotation(agent.velocity.normalized);
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 5f);
+            var trot = Quaternion.LookRotation(agent.velocity.normalized, Vector3.up);
+            transform.rotation = Quaternion.Slerp(transform.rotation, trot, Time.deltaTime * turnResponsiveness);
         }
+    }
+
+    void OnDrawGizmosSelected()
+    {
+        if (!robber) return;
+        Gizmos.color = Color.blue;
+        Gizmos.DrawLine(transform.position, robber.position);
     }
 }

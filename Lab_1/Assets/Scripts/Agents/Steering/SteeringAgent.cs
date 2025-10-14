@@ -1,73 +1,73 @@
 using UnityEngine;
 
-[RequireComponent(typeof(Transform))]
+
 public class SteeringAgent : MonoBehaviour
 {
-    [Header("Movement")]
-    public float maxSpeed = 5f;
-    public float maxForce = 10f;
-    public float mass = 1f;
+    [Header("Movimiento")]
+    public float maxSpeed = 8f;
+    public float maxForce = 12f;
+
+    [Header("Rotación")]
+    [Tooltip("Factor de respuesta del Slerp hacia la dirección de la velocidad.")]
+    public float turnResponsiveness = 8f;
+
+    [Header("Debug")]
+    public bool drawVelocity = true;
+
     [HideInInspector] public Vector3 velocity;
+    private Vector3 _acc;
 
-    protected virtual void Start()
+    public void AddForce(Vector3 force)
     {
-        velocity = Vector3.zero;
+        _acc += force;
     }
 
-    protected virtual void Update()
+ 
+    public void ApplySteering(Vector3 steeringForce, float dt)
     {
-
+        _acc += steeringForce;
+        Integrate(dt);
     }
 
-    public void ApplySteering(Vector3 steeringForce, float deltaTime)
+    public void Integrate(float dt)
     {
-        // Clamp steering force
-        if (steeringForce.magnitude > maxForce)
-            steeringForce = steeringForce.normalized * maxForce;
+      
+        velocity += _acc * dt;
 
-        Vector3 acceleration = steeringForce / mass;
-        velocity += acceleration * deltaTime;
-
-        // Clamp speed
-        if (velocity.magnitude > maxSpeed)
+        
+        float maxSpeedSq = maxSpeed * maxSpeed;
+        if (velocity.sqrMagnitude > maxSpeedSq)
             velocity = velocity.normalized * maxSpeed;
 
-
-        transform.position += velocity * deltaTime;
-
-        if (velocity.sqrMagnitude > 0.0001f)
+      
+        if (velocity.sqrMagnitude > 1e-4f)
         {
-            Vector3 dir = velocity.normalized;
-            Quaternion targetRot = Quaternion.LookRotation(dir, Vector3.up);
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, 10f * deltaTime);
+            var dir = velocity.normalized;
+            var trot = Quaternion.LookRotation(dir, Vector3.up);
+            transform.rotation = Quaternion.Slerp(transform.rotation, trot, turnResponsiveness * dt);
         }
+
+      
+        transform.position += velocity * dt;
+
+     
+        _acc = Vector3.zero;
     }
 
-    // Steering helpers
-    public Vector3 Seek(Vector3 target)
+    public Vector3 SteerTowards(Vector3 desiredVelocity)
     {
-        Vector3 desired = (target - transform.position);
-        if (desired.sqrMagnitude < 0.000001f) return Vector3.zero;
-        desired = desired.normalized * maxSpeed;
-        return desired - velocity;
+        Vector3 steer = desiredVelocity - velocity;
+        float maxF = maxForce;
+        float maxFSq = maxF * maxF;
+        if (steer.sqrMagnitude > maxFSq)
+            steer = steer.normalized * maxF;
+        return steer;
     }
 
-    public Vector3 Flee(Vector3 threat)
+    void OnDrawGizmosSelected()
     {
-        Vector3 desired = (transform.position - threat);
-        if (desired.sqrMagnitude < 0.000001f) return Vector3.zero;
-        desired = desired.normalized * maxSpeed;
-        return desired - velocity;
-    }
-
-    public Vector3 Arrive(Vector3 target, float slowingRadius)
-    {
-        Vector3 toTarget = target - transform.position;
-        float dist = toTarget.magnitude;
-        if (dist < 0.01f) return Vector3.zero;
-        float r = Mathf.Clamp(dist / slowingRadius, 0.01f, 1f);
-        Vector3 desired = toTarget.normalized * maxSpeed * r;
-        return desired - velocity;
+        if (!drawVelocity) return;
+        Gizmos.color = Color.green;
+        Gizmos.DrawLine(transform.position, transform.position + velocity);
     }
 }
-
