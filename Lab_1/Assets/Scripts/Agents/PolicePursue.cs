@@ -26,11 +26,15 @@ public class PolicePursue : MonoBehaviour
 
     [Header("Line of Sight")]
     public LayerMask losBlockers;
+    [Tooltip("Si está activo, el policía NO se mueve si no tiene línea de visión.")]
+    public bool stopWhenNoLOS = true;
+    public float eyeHeightPolice = 1.7f; 
+    public float eyeHeightRobber = 1.7f;
 
     [Header("Agent Tuning")]
-    public float desiredSpeed = 220f;
-    public float desiredAcceleration = 80f;
-    public float desiredAngularSpeed = 1080f;
+    public float desiredSpeed = 220f;         
+    public float desiredAcceleration = 80f;   
+    public float desiredAngularSpeed = 1080f;  
 
     [Header("Rotation")]
     public float turnResponsiveness = 8f;
@@ -48,11 +52,10 @@ public class PolicePursue : MonoBehaviour
     float searchTimer;
     bool hasLOS;
 
-   
     Vector3 lastRobberPos;
     bool hasLastRobberPos;
 
- 
+  
     Vector3 smoothedPredicted;
 
     void Start()
@@ -61,10 +64,10 @@ public class PolicePursue : MonoBehaviour
         if (!agent.isOnNavMesh)
             Debug.LogWarning($"{name}: not on NavMesh.");
 
-   
-        agent.autoBraking = false;     
-        agent.stoppingDistance = 0f;     
-        agent.speed = desiredSpeed;        
+       
+        agent.autoBraking = false;
+        agent.stoppingDistance = 0f;
+        agent.speed = desiredSpeed;
         agent.acceleration = desiredAcceleration;
         agent.angularSpeed = desiredAngularSpeed;
         agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
@@ -79,10 +82,10 @@ public class PolicePursue : MonoBehaviour
     {
         if (robber == null || !agent.isOnNavMesh) return;
 
-       
+   
         Vector3 robberVel = EstimateRobberVelocity(Time.deltaTime);
 
-       
+     
         tickAccum += Time.deltaTime;
         float tick = 1f / Mathf.Max(1f, updateHz);
         bool doUpdate = false;
@@ -123,12 +126,12 @@ public class PolicePursue : MonoBehaviour
               
                 smoothedPredicted = Vector3.Lerp(predicted, smoothedPredicted, predictionSmoothing);
 
-             
+               
                 if ((smoothedPredicted - agent.destination).sqrMagnitude > 0.04f)
                     agent.SetDestination(smoothedPredicted);
             }
 
-           
+          
             float dist = Vector3.Distance(transform.position, robber.position);
             if (dist < captureRadius && doUpdate)
             {
@@ -138,14 +141,37 @@ public class PolicePursue : MonoBehaviour
         }
         else
         {
-            memoryTimer -= Time.deltaTime;
-            if (memoryTimer > 0f) currentState = State.Searching;
-            else currentState = State.Patrolling;
+           
+            if (stopWhenNoLOS)
+            {
+             
+                agent.ResetPath();             
+                memoryTimer -= Time.deltaTime;  
+                if (memoryTimer <= 0f) currentState = State.Patrolling;
+                else currentState = State.Searching; 
+            }
+            else
+            {
+            
+                memoryTimer -= Time.deltaTime;
+                if (memoryTimer > 0f) currentState = State.Searching;
+                else currentState = State.Patrolling;
+            }
         }
     }
 
     void HandleSearching(bool doUpdate)
     {
+     
+        if (stopWhenNoLOS)
+        {
+
+            if (hasLOS) currentState = State.Pursuing;
+            else if (memoryTimer <= 0f) currentState = State.Patrolling;
+            return;
+        }
+
+   
         if (doUpdate) agent.SetDestination(lastKnownPosition);
 
         if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance)
@@ -192,12 +218,12 @@ public class PolicePursue : MonoBehaviour
     {
         if (robber == null) return Vector3.zero;
 
-      
+    
         var rb = robber.GetComponent<Rigidbody>();
         if (rb != null)
             return rb.linearVelocity;
 
-        
+   
         if (!hasLastRobberPos)
         {
             lastRobberPos = robber.position;
@@ -212,10 +238,14 @@ public class PolicePursue : MonoBehaviour
 
     bool HasLineOfSight(Vector3 from, Vector3 to)
     {
-        Vector3 dir = to - from;
+    
+        Vector3 fromEye = from + Vector3.up * eyeHeightPolice;
+        Vector3 toEye = to + Vector3.up * eyeHeightRobber;
+        Vector3 dir = toEye - fromEye;
         float dist = dir.magnitude;
         if (dist <= 0.01f) return true;
-        return !Physics.Raycast(from + Vector3.up, dir.normalized, dist, losBlockers, QueryTriggerInteraction.Ignore);
+
+        return !Physics.Raycast(fromEye, dir.normalized, dist, losBlockers, QueryTriggerInteraction.Ignore);
     }
 
     void RotateOnly()
