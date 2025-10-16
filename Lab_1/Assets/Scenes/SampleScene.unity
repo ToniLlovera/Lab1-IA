@@ -1680,13 +1680,18 @@ MonoBehaviour:
   robber: {fileID: 2048025081}
   updateHz: 10
   leadTimeMultiplier: 1.5
+  maxPrediction: 1.2
+  predictionSmoothing: 0.25
+  captureRadius: 1
   memoryDuration: 3
   searchRadius: 50
   searchInterval: 1
-  patrolSpeed: 50
   losBlockers:
     serializedVersion: 2
     m_Bits: 8
+  desiredSpeed: 220
+  desiredAcceleration: 80
+  desiredAngularSpeed: 1080
   turnResponsiveness: 6
   debugDraw: 1
 --- !u!195 &624216562
@@ -1700,12 +1705,12 @@ NavMeshAgent:
   m_AgentTypeID: 0
   m_Radius: 0.56
   m_Speed: 220
-  m_Acceleration: 120
+  m_Acceleration: 80
   avoidancePriority: 50
-  m_AngularSpeed: 15
-  m_StoppingDistance: 2
+  m_AngularSpeed: 1080
+  m_StoppingDistance: 0
   m_AutoTraverseOffMeshLink: 1
-  m_AutoBraking: 1
+  m_AutoBraking: 0
   m_AutoRepath: 1
   m_Height: 2
   m_BaseOffset: 1

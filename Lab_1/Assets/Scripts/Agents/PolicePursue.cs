@@ -1,38 +1,59 @@
 using UnityEngine;
 using UnityEngine.AI;
-using System.Collections;
 
 [RequireComponent(typeof(NavMeshAgent))]
 public class PolicePursue : MonoBehaviour
 {
     [Header("References")]
-    public Transform robber;  // Referencia al ladrón
+    public Transform robber;
 
     [Header("Pursuit Settings")]
-    public float updateHz = 15f;  // Frecuencia de actualización aumentada para mayor reactividad
-    public float leadTimeMultiplier = 1.2f;  // Multiplicador para predecir mejor la trayectoria
-    public float memoryDuration = 5f;  // Duración de memoria aumentada
-    public float searchRadius = 5f;  // Radio de búsqueda aumentado
-    public float searchInterval = 1.5f;  // Intervalo de búsqueda más frecuente
-    public float patrolSpeed = 2f;  // Velocidad para patrullar
+    [Tooltip("Veces por segundo que actualizamos el destino (evita SetDestination cada frame).")]
+    public float updateHz = 12f;
+    [Tooltip("Multiplicador del tiempo de anticipación.")]
+    public float leadTimeMultiplier = 1.1f;
+    [Tooltip("Máximo horizonte de predicción (segundos).")]
+    public float maxPrediction = 1.2f;
+    [Tooltip("Suavizado de la posición predicha (0 = sin suavizado, 1 = muy suave).")]
+    [Range(0f, 1f)] public float predictionSmoothing = 0.25f;
+    [Tooltip("Radio a partir del cual consideramos 'capturado' para evitar jitter.")]
+    public float captureRadius = 1.0f;
+
+    [Header("Memory & Search")]
+    public float memoryDuration = 5f;
+    public float searchRadius = 5f;
+    public float searchInterval = 1.5f;
 
     [Header("Line of Sight")]
-    public LayerMask losBlockers;  // Capas que bloquean la línea de visión
+    public LayerMask losBlockers;
+
+    [Header("Agent Tuning")]
+    public float desiredSpeed = 220f;
+    public float desiredAcceleration = 80f;
+    public float desiredAngularSpeed = 1080f;
 
     [Header("Rotation")]
-    public float turnResponsiveness = 8f;  // Mayor responsividad de rotación
+    public float turnResponsiveness = 8f;
 
     [Header("Debug")]
     public bool debugDraw = true;
 
-    private NavMeshAgent agent;
-    private float _accum;
-    private Vector3 _lastKnownPosition;
-    private float _memoryTimer;
-    private bool _hasLOS;
-    private float _searchTimer;
-    private enum State { Pursuing, Searching, Patrolling }  // Estados para el policía
-    private State currentState = State.Patrolling;  // Estado inicial: patrullar
+    enum State { Pursuing, Searching, Patrolling }
+    State currentState = State.Patrolling;
+
+    NavMeshAgent agent;
+    float tickAccum;
+    Vector3 lastKnownPosition;
+    float memoryTimer;
+    float searchTimer;
+    bool hasLOS;
+
+   
+    Vector3 lastRobberPos;
+    bool hasLastRobberPos;
+
+ 
+    Vector3 smoothedPredicted;
 
     void Start()
     {
@@ -40,138 +61,152 @@ public class PolicePursue : MonoBehaviour
         if (!agent.isOnNavMesh)
             Debug.LogWarning($"{name}: not on NavMesh.");
 
-        _memoryTimer = 0f;
-        _searchTimer = 0f;
-        agent.speed = 220;
-        agent.acceleration = 120;// Iniciar con velocidad de patrulla
+   
+        agent.autoBraking = false;     
+        agent.stoppingDistance = 0f;     
+        agent.speed = desiredSpeed;        
+        agent.acceleration = desiredAcceleration;
+        agent.angularSpeed = desiredAngularSpeed;
+        agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
+        agent.autoRepath = true;
+
+        memoryTimer = 0f;
+        searchTimer = 0f;
+        hasLastRobberPos = false;
     }
 
     void Update()
     {
         if (robber == null || !agent.isOnNavMesh) return;
 
-        _accum += Time.deltaTime;
-        float tick = 1f / Mathf.Max(1f, updateHz);
-        if (_accum < tick)
-        {
-            RotateOnly();
-            return;
-        }
-        _accum = 0f;
+       
+        Vector3 robberVel = EstimateRobberVelocity(Time.deltaTime);
 
-        _hasLOS = HasLineOfSight(transform.position, robber.position);
+       
+        tickAccum += Time.deltaTime;
+        float tick = 1f / Mathf.Max(1f, updateHz);
+        bool doUpdate = false;
+        if (tickAccum >= tick)
+        {
+            tickAccum = 0f;
+            doUpdate = true;
+        }
+
+        hasLOS = HasLineOfSight(transform.position, robber.position);
 
         switch (currentState)
         {
             case State.Pursuing:
-                HandlePursuing();
+                HandlePursuing(doUpdate, robberVel);
                 break;
             case State.Searching:
-                HandleSearching();
+                HandleSearching(doUpdate);
                 break;
             case State.Patrolling:
-                HandlePatrolling();
+                HandlePatrolling(doUpdate);
                 break;
         }
 
-        RotateOnly();  // Siempre rotar hacia la dirección de movimiento
+        RotateOnly();
     }
 
-    private void HandlePursuing()
+    void HandlePursuing(bool doUpdate, Vector3 robberVel)
     {
-        if (_hasLOS)
+        if (hasLOS)
         {
-            _lastKnownPosition = robber.position;
-            _memoryTimer = memoryDuration;
-            Vector3 robberVel = EstimateRobberVelocity(Time.deltaTime * updateHz);
-            Pursue(robber.position, robberVel);
+            lastKnownPosition = robber.position;
+            memoryTimer = memoryDuration;
+
+            if (doUpdate)
+            {
+                Vector3 predicted = PredictFuturePosition(robber.position, robberVel);
+              
+                smoothedPredicted = Vector3.Lerp(predicted, smoothedPredicted, predictionSmoothing);
+
+             
+                if ((smoothedPredicted - agent.destination).sqrMagnitude > 0.04f)
+                    agent.SetDestination(smoothedPredicted);
+            }
+
+           
+            float dist = Vector3.Distance(transform.position, robber.position);
+            if (dist < captureRadius && doUpdate)
+            {
+                Vector3 orbitOffset = (transform.right * 0.5f) + (transform.forward * 0.25f);
+                agent.SetDestination(robber.position + orbitOffset);
+            }
         }
         else
         {
-            _memoryTimer -= Time.deltaTime;
-            if (_memoryTimer > 0f)
-            {
-                currentState = State.Searching;  // Cambiar a búsqueda si se pierde la vista
-            }
-            else
-            {
-                currentState = State.Patrolling;  // Volver a patrullar
-            }
+            memoryTimer -= Time.deltaTime;
+            if (memoryTimer > 0f) currentState = State.Searching;
+            else currentState = State.Patrolling;
         }
     }
 
-    private void HandleSearching()
+    void HandleSearching(bool doUpdate)
     {
-        agent.SetDestination(_lastKnownPosition);  // Ir a la última posición conocida
+        if (doUpdate) agent.SetDestination(lastKnownPosition);
 
-        if (agent.remainingDistance <= agent.stoppingDistance)
+        if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance)
         {
-            _searchTimer -= Time.deltaTime;
-            if (_searchTimer <= 0f)
+            searchTimer -= Time.deltaTime;
+            if (searchTimer <= 0f)
             {
-                _searchTimer = searchInterval;
-                // Búsqueda en patrón: círculos alrededor de la posición
-                float angle = Time.time * 0.5f;  // Ángulo para movimiento circular
-                Vector3 searchOffset = new Vector3(
-                    Mathf.Cos(angle) * searchRadius,
-                    0,
-                    Mathf.Sin(angle) * searchRadius
-                );
-                Vector3 searchTarget = _lastKnownPosition + searchOffset;
+                searchTimer = searchInterval;
+                float angle = Time.time * 0.5f;
+                Vector3 searchOffset = new Vector3(Mathf.Cos(angle) * searchRadius, 0, Mathf.Sin(angle) * searchRadius);
+                Vector3 searchTarget = lastKnownPosition + searchOffset;
 
                 if (NavMesh.SamplePosition(searchTarget, out NavMeshHit hit, searchRadius, NavMesh.AllAreas))
                     agent.SetDestination(hit.position);
             }
         }
 
-        if (_hasLOS) currentState = State.Pursuing;  // Volver a perseguir si se ve al ladrón
+        if (hasLOS) currentState = State.Pursuing;
     }
 
-    private void HandlePatrolling()
+    void HandlePatrolling(bool doUpdate)
     {
-        // Patrullar aleatoriamente por el mapa
-        if (!agent.hasPath)
+        if (doUpdate && !agent.hasPath)
         {
-            Vector3 randomPatrolPoint = transform.position + new Vector3(
-                Random.Range(-10f, 10f),
-                0,
-                Random.Range(-10f, 10f)
-            );
-
+            Vector3 randomPatrolPoint = transform.position + new Vector3(Random.Range(-10f, 10f), 0, Random.Range(-10f, 10f));
             if (NavMesh.SamplePosition(randomPatrolPoint, out NavMeshHit hit, 10f, NavMesh.AllAreas))
                 agent.SetDestination(hit.position);
         }
 
-        if (_hasLOS) currentState = State.Pursuing;  // Cambiar a persecución si se ve al ladrón
+        if (hasLOS) currentState = State.Pursuing;
     }
 
-    void Pursue(Vector3 targetPos, Vector3 targetVel)
+    Vector3 PredictFuturePosition(Vector3 targetPos, Vector3 targetVel)
     {
         float dist = Vector3.Distance(transform.position, targetPos);
-        float denom = agent.speed + Mathf.Max(0.1f, targetVel.magnitude);
-        float t = (dist / denom) * leadTimeMultiplier;
+        float denom = Mathf.Max(0.1f, agent.speed + 0.1f);
+        float t = Mathf.Min(maxPrediction, (dist / denom) * leadTimeMultiplier);
         Vector3 predicted = targetPos + targetVel * t;
-
-        if (NavMesh.SamplePosition(predicted, out NavMeshHit hit, 2.0f, NavMesh.AllAreas))
-            agent.SetDestination(hit.position);
-        else
-            agent.SetDestination(predicted);
+        predicted.y = targetPos.y; 
+        return predicted;
     }
 
-    Vector3 EstimateRobberVelocity(float deltaT)
+    Vector3 EstimateRobberVelocity(float dt)
     {
-        Vector3 vel = Vector3.zero;
+        if (robber == null) return Vector3.zero;
+
+      
         var rb = robber.GetComponent<Rigidbody>();
-
         if (rb != null)
+            return rb.linearVelocity;
+
+        
+        if (!hasLastRobberPos)
         {
-            vel = rb.linearVelocity;
-        }
-        else if (robber != null)
-        {
-            vel = (robber.position - transform.position) / deltaT;  // Estimación básica
+            lastRobberPos = robber.position;
+            hasLastRobberPos = true;
+            return Vector3.zero;
         }
 
+        Vector3 vel = (robber.position - lastRobberPos) / Mathf.Max(0.0001f, dt);
+        lastRobberPos = robber.position;
         return vel;
     }
 
@@ -180,7 +215,6 @@ public class PolicePursue : MonoBehaviour
         Vector3 dir = to - from;
         float dist = dir.magnitude;
         if (dist <= 0.01f) return true;
-
         return !Physics.Raycast(from + Vector3.up, dir.normalized, dist, losBlockers, QueryTriggerInteraction.Ignore);
     }
 
@@ -195,8 +229,10 @@ public class PolicePursue : MonoBehaviour
 
     void OnDrawGizmosSelected()
     {
-        Gizmos.color = _hasLOS ? Color.green : Color.red;
         if (robber != null)
+        {
+            Gizmos.color = hasLOS ? Color.green : Color.red;
             Gizmos.DrawLine(transform.position + Vector3.up, robber.position + Vector3.up);
+        }
     }
 }
