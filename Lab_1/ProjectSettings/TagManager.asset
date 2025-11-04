@@ -5,15 +5,16 @@ TagManager:
   serializedVersion: 3
   tags:
   - Wall
+  - SmellSource
   layers:
   - Default
   - TransparentFX
   - Ignore Raycast
-  - Obstacles
+  - Environment
   - Water
   - UI
-  - 
-  - 
+  - Zombies
+  - Player
   - 
   - 
   - 
