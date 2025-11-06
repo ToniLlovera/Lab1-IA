@@ -23,11 +23,23 @@ public class ZombieAI : MonoBehaviour
     [Tooltip("Intervalo entre chequeos de frustum (optimización).")]
     public float frustumCheckInterval = 0.3f;
 
+    [Tooltip("Tiempo sin ver al jugador antes de olvidar.")]
+    public float forgetTime = 3f;
+
+    [Tooltip("Distancia máxima para detectar al jugador por proximidad (además del frustum).")]
+    public float detectionDistance = 20f;
+
+    [Header("Wandering Settings")]
+    [Tooltip("Tiempo entre cambios de dirección al deambular.")]
+    public float wanderInterval = 5f;
+    [Tooltip("Distancia máxima a la que se mueve al deambular.")]
+    public float wanderRadius = 10f;
+
     [Header("Anti-atasco: Separación entre zombies")]
     [Tooltip("Capa que usan los zombies. Crea la Layer 'Zombies' y asígnala a los prefabs.")]
-    public LayerMask zombiesMask;            
+    public LayerMask zombiesMask;
     [Tooltip("Radio para detectar vecinos y aplicar separación.")]
-    public float separationRadius = 0.9f;     
+    public float separationRadius = 0.9f;
     [Tooltip("Intensidad de la separación (m/s).")]
     public float separationStrength = 1.2f;
 
@@ -41,9 +53,14 @@ public class ZombieAI : MonoBehaviour
     [Tooltip("Duración del empujón lateral (s).")]
     public float nudgeTime = 0.25f;
 
+    [Header("Walls Detection")]
+    [Tooltip("Layer usada por los muros (para raycasts del olor).")]
+    public LayerMask wallsMask;
+
     private NavMeshAgent agent;
     private Renderer myRenderer;
     private bool isChasing = false;
+    private float unseenTimer = 0f;
 
     private readonly Collider[] sepHits = new Collider[16];
     private Vector3 sepAccum;
@@ -67,17 +84,26 @@ public class ZombieAI : MonoBehaviour
         }
 
         agent.speed = walkSpeed;
-        agent.autoBraking = true; 
+        agent.autoBraking = true;
         agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
         agent.avoidancePriority = Random.Range(20, 80);
 
+        // Asegurar capa de zombis
         if (zombiesMask.value == 0)
         {
             int zLayer = LayerMask.NameToLayer("Zombies");
             if (zLayer >= 0) zombiesMask = 1 << zLayer;
         }
 
+        // Asegurar capa de walls
+        if (wallsMask.value == 0)
+        {
+            int wLayer = LayerMask.NameToLayer("Walls");
+            if (wLayer >= 0) wallsMask = 1 << wLayer;
+        }
+
         StartCoroutine(PerceptionLoop());
+        StartCoroutine(WanderLoop());  // Agregado para deambulación
     }
 
     IEnumerator PerceptionLoop()
@@ -91,15 +117,32 @@ public class ZombieAI : MonoBehaviour
             if (Camera.main == null || myRenderer == null) continue;
 
             Plane[] planes = GeometryUtility.CalculateFrustumPlanes(Camera.main);
-            if (GeometryUtility.TestPlanesAABB(planes, myRenderer.bounds))
+            bool visible = GeometryUtility.TestPlanesAABB(planes, myRenderer.bounds);
+
+            // Agregar check de distancia
+            bool close = player != null && Vector3.Distance(transform.position, player.position) < detectionDistance;
+
+            if (visible || close)
             {
                 OnSeenByPlayer();
+                unseenTimer = 0f;
+            }
+            else if (isChasing)
+            {
+                unseenTimer += frustumCheckInterval;
+                if (unseenTimer > forgetTime)
+                {
+                    isChasing = false;
+                    agent.speed = walkSpeed;
+                    agent.ResetPath();
+                }
             }
         }
     }
 
     void OnSeenByPlayer()
     {
+        Debug.Log($"{gameObject.name} vio o detectó al jugador por proximidad. Activando persecución.");  // Log opcional para debug
         if (player == null || isChasing) return;
 
         isChasing = true;
@@ -107,20 +150,16 @@ public class ZombieAI : MonoBehaviour
         agent.autoBraking = false;
         agent.SetDestination(player.position);
 
+        // Comunicación global con otros zombis
         if (zombiesParent != null)
         {
-            foreach (Transform child in zombiesParent)
-            {
-                if (child != transform)
-                {
-                    child.SendMessage("OnPlayerSpotted", player.position, SendMessageOptions.DontRequireReceiver);
-                }
-            }
+            zombiesParent.BroadcastMessage("OnPlayerSpotted", player.position, SendMessageOptions.DontRequireReceiver);
         }
     }
 
     void OnPlayerSpotted(Vector3 playerPosition)
     {
+        Debug.Log($"{gameObject.name} recibió broadcast de persecución al jugador en {playerPosition}.");  // Log opcional para debug
         if (isChasing) return;
 
         isChasing = true;
@@ -131,16 +170,33 @@ public class ZombieAI : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("SmellSource"))
+        if (other.CompareTag("SmellSource") && agent != null && agent.isOnNavMesh)
         {
             Vector3 smellPos = other.transform.position;
-            agent.SetDestination(smellPos);
+            Vector3 dir = smellPos - transform.position;
+
+            // Comprobar si hay un muro entre el zombi y el marcador de olor
+            if (!Physics.Raycast(transform.position + Vector3.up * 0.5f, dir.normalized, dir.magnitude, wallsMask))
+            {
+                // NUEVO: No ir al smell si el player está dentro de detectionDistance (priorizar persecución)
+                bool playerClose = player != null && Vector3.Distance(transform.position, player.position) < detectionDistance;
+
+                if (!isChasing && !playerClose)
+                {
+                    agent.SetDestination(smellPos);
+                    Debug.Log($"{gameObject.name} detectó smell en {smellPos}. Distancia al jugador: {Vector3.Distance(transform.position, player.position)}");  // Log opcional para debug
+                }
+                else if (playerClose && !isChasing)
+                {
+                    // Si el player está cerca pero no estamos chasing, activar persecución en lugar de smell
+                    OnSeenByPlayer();
+                }
+            }
         }
     }
 
     void Update()
     {
- 
         if (isChasing && player != null)
         {
             if (!agent.pathPending && agent.remainingDistance < 1.0f)
@@ -180,15 +236,17 @@ public class ZombieAI : MonoBehaviour
             Vector3 toMe = transform.position - c.transform.position;
             toMe.y = 0f;
             float dist = toMe.magnitude + 1e-4f;
-
-
             sepAccum += toMe / dist;
         }
 
         if (sepAccum.sqrMagnitude > 0.0001f)
         {
             sepAccum = sepAccum.normalized * separationStrength * Time.deltaTime;
-            agent.Move(sepAccum); 
+            Vector3 candidate = transform.position + sepAccum;
+            if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 0.3f, NavMesh.AllAreas))
+            {
+                agent.Move(hit.position - transform.position);
+            }
         }
     }
 
@@ -202,7 +260,6 @@ public class ZombieAI : MonoBehaviour
             stuckTimer += Time.deltaTime;
             if (stuckTimer >= stuckCheckTime && nudgeTimer <= 0f)
             {
-        
                 Vector3 fwd = transform.forward;
                 Vector3 right = new Vector3(fwd.z, 0f, -fwd.x).normalized;
                 float side = Random.value < 0.5f ? -1f : 1f;
@@ -214,7 +271,6 @@ public class ZombieAI : MonoBehaviour
                 nudgeTimer = nudgeTime;
                 stuckTimer = 0f;
 
-     
                 agent.avoidancePriority = Mathf.Clamp(agent.avoidancePriority + Random.Range(-10, -5), 0, 99);
             }
         }
@@ -230,16 +286,37 @@ public class ZombieAI : MonoBehaviour
         {
             nudgeTimer -= Time.deltaTime;
             Vector3 delta = nudgeDir * nudgeStrength * Time.deltaTime;
-            agent.Move(delta);
+            Vector3 candidate = transform.position + delta;
+            if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 0.3f, NavMesh.AllAreas))
+            {
+                agent.Move(hit.position - transform.position);
+            }
         }
     }
 
-#if UNITY_EDITOR
+    IEnumerator WanderLoop()
+    {
+        while (true)
+        {
+            yield return new WaitForSeconds(wanderInterval);
+
+            if (!isChasing && agent != null && agent.isOnNavMesh)
+            {
+                // Elegir un punto aleatorio cercano
+                Vector3 randomDirection = Random.insideUnitSphere * wanderRadius;
+                randomDirection += transform.position;
+                randomDirection.y = transform.position.y;  // Mantener en el mismo plano
+
+                if (NavMesh.SamplePosition(randomDirection, out NavMeshHit hit, wanderRadius, NavMesh.AllAreas))
+                {
+                    agent.SetDestination(hit.position);
+                }
+            }
+        }
+    }
     void OnDrawGizmosSelected()
     {
-     
         Gizmos.color = new Color(1f, 0.5f, 0.2f, 0.9f);
         Gizmos.DrawWireSphere(transform.position, separationRadius);
     }
-#endif
 }
